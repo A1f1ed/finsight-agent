@@ -19,5 +19,6 @@ matplotlib
 # Web 界面
 streamlit
 
-
-torchvision
+# HTTP API 服务（finsight/server.py）
+fastapi
+uvicorn

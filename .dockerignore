@@ -1,0 +1,21 @@
+# 密钥绝不进镜像（运行时用 --env-file .env 注入）
+.env
+
+# Git 与 IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# 运行时产物（容器内会自动重新生成）
+workspace/
+output/
+chroma_db/
+
+# Python 缓存
+__pycache__/
+*.pyc
+.venv/
+
+# 文档截图（运行不需要）
+docs/

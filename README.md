@@ -18,7 +18,7 @@ FinSight answers finance concept questions with citations from a local knowledge
 - **Autonomous data analysis** — for computation questions the agent plans with a todo list, writes a pandas/matplotlib script, runs it in a local sandbox, interprets the output and iterates on errors.
 - **Artifact delivery** — charts (PNG) and reports (Markdown) are exported from the agent workspace and rendered/downloadable in the Streamlit UI.
 - **Multi-turn memory** — LangGraph checkpointer keeps conversation context per thread; every conversation gets its own isolated workspace.
-- **Two interfaces** — Streamlit web UI and a minimal CLI.
+- **Three interfaces** — Streamlit web UI, a minimal CLI, and a FastAPI HTTP service with auto-generated OpenAPI docs.
 
 ## Architecture
 
@@ -55,6 +55,8 @@ Model & embeddings: **Qwen** chat model + **Qwen text-embedding** via the DashSc
 - **LocalShellBackend** — sandboxed code execution with virtual-mode filesystem
 - **pandas / numpy / matplotlib** — analysis scripts the agent writes at runtime
 - **Streamlit** — chat UI with artifact rendering
+- **FastAPI / uvicorn** — HTTP API service layer (pydantic validation, OpenAPI docs)
+- **Docker** — containerized deployment of the API service
 - **LangSmith** (optional) — tracing and debugging
 
 ## Project Structure
@@ -62,11 +64,13 @@ Model & embeddings: **Qwen** chat model + **Qwen text-embedding** via the DashSc
 ```
 finsight-agent/
 ├── app.py                  # Streamlit chat UI
+├── .streamlit/config.toml  # disables the file watcher (cleaner startup logs)
 ├── finsight/
 │   ├── config.py           # env loading, chat model & embeddings factory
 │   ├── rag.py              # knowledge loading → splitting → Chroma (persistent)
 │   ├── tools.py            # search_knowledge + publish_report tools
 │   ├── agent.py            # Deep Agent assembly, prompts, workspace factory
+│   ├── server.py           # FastAPI HTTP service
 │   └── cli.py              # terminal interface
 ├── chroma_db/              # vector store data (auto-built, git-ignored)
 ├── knowledge/              # RAG corpus (markdown)
@@ -80,7 +84,10 @@ finsight-agent/
 │   ├── reindex_knowledge.py    # rebuild the Chroma index after editing knowledge/
 │   ├── smoke_test.py           # RAG path test
 │   ├── backend_test.py         # sandbox execution test
+│   ├── api_test.py             # FastAPI /chat smoke test
 │   └── e2e_test.py             # full data-analysis flow test
+├── Dockerfile              # container image for the API service
+├── .dockerignore
 ├── requirements.txt
 └── .env.example
 ```
@@ -105,6 +112,9 @@ streamlit run app.py
 
 # or terminal
 python -m finsight.cli
+
+# or HTTP API (interactive docs at http://localhost:8000/docs)
+uvicorn finsight.server:app --reload
 ```
 
 ### Things to try
@@ -113,6 +123,47 @@ python -m finsight.cli
 - 港股的每手股数和 T+2 交收是怎么回事？
 - 分析三只股票的区间涨跌幅和年化波动率，并画一张对比图。
 - 计算每只股票的最大回撤，生成图表和一份分析报告。
+
+## HTTP API (FastAPI)
+
+`finsight/server.py` exposes the agent as an HTTP service so any frontend
+(web / mobile / chatops bot) can use it. Endpoints are synchronous but run in
+FastAPI's thread pool, so the server stays responsive during long analyses.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | liveness probe |
+| `POST /chat` | ask a question; `{"message": ..., "thread_id": optional}` → `{thread_id, answer, artifacts}` |
+| `GET /chat/{thread_id}/artifacts/{name}` | download a delivered chart/report |
+
+```bash
+uvicorn finsight.server:app --reload          # docs at http://localhost:8000/docs
+
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "夏普比率怎么计算？"}'
+```
+
+## Deployment
+
+**Streamlit UI → Streamlit Community Cloud (free)**
+
+1. Push this repo to GitHub, then sign in at [share.streamlit.io](https://share.streamlit.io).
+2. Deploy new app → select the repo, branch `main`, main file `app.py`.
+3. Paste the contents of `.env` into *Advanced settings → Secrets*.
+4. The Chroma index auto-builds on first startup (the filesystem is ephemeral,
+   so it rebuilds on each cold start — by design, indexing is idempotent and cheap).
+
+**API service → Docker**
+
+```bash
+docker build -t finsight-agent .
+docker run --env-file .env -p 8000:8000 finsight-agent
+```
+
+The image contains pandas/matplotlib because the sandbox executes generated
+code *inside* the container. Secrets are injected at runtime (`--env-file`),
+never baked into the image (`.dockerignore` excludes `.env`).
 
 ## Design Decisions & Lessons Learned
 
@@ -127,7 +178,7 @@ These are real pitfalls hit during development — documented so the next person
 ## Roadmap
 
 - [x] Persist the vector store (Chroma embedded mode, deterministic chunk IDs, auto-build on first startup)
-- [ ] FastAPI service layer + Docker deployment
+- [x] FastAPI service layer + Docker deployment (`finsight/server.py`, `Dockerfile`)
 - [ ] Evaluation harness (retrieval recall, answer grounding) with LangSmith datasets
 - [ ] Human-in-the-loop approval before executing generated code
 
