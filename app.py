@@ -94,8 +94,13 @@ with st.sidebar:
 
 
 def render_artifacts(artifact_paths: list[str]) -> None:
-    """渲染 agent 交付的产物：图片直接展示，Markdown 报告可展开/下载。"""
-    for path_str in artifact_paths:
+    """渲染 agent 交付的产物：图片直接展示，Markdown 报告可展开/下载。
+
+    下载按钮必须显式指定唯一 key：不同轮次可能交付同名同内容的文件（如多次分析都叫
+    report.md），此时 Streamlit 自动计算的元素 ID 会重复，抛
+    StreamlitDuplicateElementId。用文件完整路径做 key 即可保证唯一。
+    """
+    for index, path_str in enumerate(dict.fromkeys(artifact_paths)):
         path = Path(path_str)
         if not path.exists():
             continue
@@ -109,6 +114,7 @@ def render_artifacts(artifact_paths: list[str]) -> None:
                 data=path.read_bytes(),
                 file_name=path.name,
                 mime="text/markdown",
+                key=f"dl-{index}-{path_str}",
             )
 
 
@@ -146,7 +152,10 @@ if prompt:
     before = {str(p) for p in run_root.rglob("*") if p.is_file()} if run_root.exists() else set()
 
     with st.chat_message("assistant"):
-        with st.spinner("FinSight 正在工作（检索知识 / 编写并执行分析代码，可能需要 1-2 分钟）…"):
+        with st.spinner(
+            "FinSight 正在工作（检索知识 / 编写并执行分析代码）… "
+            "本地约 1-2 分钟；云端服务器在海外，调用国内模型接口需 3-5 分钟，请耐心等待"
+        ):
             try:
                 result = st.session_state.agent.invoke(
                     {"messages": [HumanMessage(content=prompt)]},
