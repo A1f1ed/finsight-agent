@@ -1,0 +1,23 @@
+# Deep Agents 框架（基于 LangGraph 的深度代理）
+deepagents>=0.7
+langchain
+langchain-openai
+langchain-text-splitters
+langgraph
+
+# 持久化向量库（嵌入式模式，无需单独部署数据库服务）
+langchain-chroma
+
+# 配置
+python-dotenv
+
+# 沙箱数据分析依赖（agent 生成的脚本会用到）
+pandas
+numpy
+matplotlib
+
+# Web 界面
+streamlit
+
+
+torchvision
