@@ -2,6 +2,8 @@
 
 **A finance research assistant built with LangChain Deep Agents — combining RAG knowledge Q&A and sandboxed data analysis in one conversational interface.**
 
+🔗 **Live demo:** [finsight-agent-0828.streamlit.app](https://finsight-agent-0828.streamlit.app/) (Streamlit Community Cloud; complex questions take 3–5 min as the overseas instance calls China-based LLM endpoints)
+
 FinSight answers finance concept questions with citations from a local knowledge base, and performs real data analysis on stock market data by writing, executing and debugging Python code autonomously — then delivers charts and a markdown report back to the chat UI.
 
 | Chat UI | Knowledge Q&A (RAG) |
