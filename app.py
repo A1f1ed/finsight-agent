@@ -29,7 +29,7 @@ logging.getLogger("transformers").setLevel(logging.CRITICAL)
 with redirect_stdout(io.StringIO()):
     from langchain.messages import HumanMessage
 
-    from finsight.agent import OUTPUT_ROOT, SAMPLE_CSV, create_finsight_agent, new_thread_id
+    from finsight.agent import OUTPUT_ROOT, SAMPLE_CSV, WORKSPACE_ROOT, create_finsight_agent, new_thread_id
 
 st.set_page_config(page_title="FinSight Agent", page_icon="📈", layout="wide")
 
@@ -127,14 +127,52 @@ def collect_new_artifacts(before: set[str]) -> list[str]:
     return sorted(current - before)
 
 
+def workspace_files() -> set[str]:
+    """会话工作区当前的全部文件（含检索到的知识块）。"""
+    ws_root = WORKSPACE_ROOT / st.session_state.thread_id
+    if not ws_root.exists():
+        return set()
+    return {str(p) for p in ws_root.rglob("*") if p.is_file()}
+
+
+def extract_sources(new_files: set[str]) -> list[str]:
+    """从本轮新检索的知识块里解析来源，去重且保序。
+
+    程序化引用：search_knowledge 写块文件时首行为 "# Source: knowledge/xxx.md"，
+    直接解析它来生成引用，不依赖 LLM 在回答里自觉带上来源（非确定性）。
+    """
+    sources: list[str] = []
+    for path_str in sorted(new_files):
+        path = Path(path_str)
+        if path.suffix != ".md" or "retrieved" not in path.parts:
+            continue
+        try:
+            first_line = path.read_text(encoding="utf-8").split("\n", 1)[0]
+        except OSError:
+            continue
+        if first_line.startswith("# Source: "):
+            src = first_line[len("# Source: "):].strip()
+            if src and src not in sources:
+                sources.append(src)
+    return sources
+
+
+def render_sources(sources: list[str]) -> None:
+    """在回答下方渲染本轮引用的知识库来源。"""
+    if sources:
+        st.caption("📚 参考来源：" + "　".join(f"`{s}`" for s in sources))
+
+
 st.header("FinSight · 金融研究 AI 助手")
 
-# 渲染历史消息（含历史交付的图表/报告）
+# 渲染历史消息（含历史交付的图表/报告与引用来源）
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("artifacts"):
             render_artifacts(msg["artifacts"])
+        if msg.get("sources"):
+            render_sources(msg["sources"])
 
 
 prompt = st.chat_input("问一个金融知识问题，或让助手分析股票数据…")
@@ -150,6 +188,7 @@ if prompt:
 
     run_root = OUTPUT_ROOT / st.session_state.thread_id
     before = {str(p) for p in run_root.rglob("*") if p.is_file()} if run_root.exists() else set()
+    ws_before = workspace_files()
 
     with st.chat_message("assistant"):
         with st.spinner(
@@ -168,7 +207,9 @@ if prompt:
         st.markdown(answer)
         artifacts = collect_new_artifacts(before)
         render_artifacts(artifacts)
+        sources = extract_sources(workspace_files() - ws_before)
+        render_sources(sources)
 
     st.session_state.messages.append(
-        {"role": "assistant", "content": answer, "artifacts": artifacts}
+        {"role": "assistant", "content": answer, "artifacts": artifacts, "sources": sources}
     )
