@@ -109,7 +109,7 @@ python scripts/generate_sample_data.py
 # after editing files under knowledge/, rebuild it with:
 # python scripts/reindex_knowledge.py
 
-# web UI（.streamlit/config.toml 已关闭文件监视，避免扫描无关依赖）
+# web UI (.streamlit/config.toml disables the file watcher to avoid scanning unrelated deps)
 streamlit run app.py
 
 # or terminal
@@ -121,10 +121,10 @@ uvicorn finsight.server:app --reload
 
 ### Things to try
 
-- 夏普比率和最大回撤分别怎么计算？
-- 港股的每手股数和 T+2 交收是怎么回事？
-- 分析三只股票的区间涨跌幅和年化波动率，并画一张对比图。
-- 计算每只股票的最大回撤，生成图表和一份分析报告。
+- How are the Sharpe ratio and maximum drawdown calculated?
+- What are board lots and T+2 settlement in the HK stock market?
+- Analyze the period returns and annualized volatility of the three stocks, and plot a comparison chart.
+- Compute the maximum drawdown of each stock, and generate charts plus an analysis report.
 
 ## HTTP API (FastAPI)
 
@@ -143,7 +143,7 @@ uvicorn finsight.server:app --reload          # docs at http://localhost:8000/do
 
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "夏普比率怎么计算？"}'
+  -d '{"message": "How is the Sharpe ratio calculated?"}'
 ```
 
 ## Deployment

@@ -1,6 +1,6 @@
-"""环境与模型配置：加载 .env，构建聊天模型与 embedding 模型。
+"""Environment and model configuration: loads .env, builds the chat model and embeddings.
 
-所有密钥通过环境变量注入，不要把真实 key 提交到 Git。
+All secrets are injected via environment variables — never commit real keys to Git.
 """
 
 import os
@@ -12,17 +12,17 @@ from langchain_openai import OpenAIEmbeddings
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# 优先加载项目根目录下的 .env
+# Load the .env at the project root
 load_dotenv(PROJECT_ROOT / ".env")
 
-# 聊天模型（通过阿里云百炼 OpenAI 兼容端点调用）
+# Chat model (called through the Alibaba Cloud Bailian OpenAI-compatible endpoint)
 CHAT_MODEL = os.getenv("CHAT_MODEL", "qwen3.7-plus")
-# Embedding 模型
+# Embedding model
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "qwen3.7-text-embedding")
 
 
 def get_chat_model():
-    """构建聊天模型。使用 OpenAI 兼容模式接入阿里云百炼。"""
+    """Build the chat model, using OpenAI-compatible mode against Bailian."""
     return init_chat_model(
         model=CHAT_MODEL,
         model_provider="openai",
@@ -32,13 +32,14 @@ def get_chat_model():
 
 
 def get_embeddings() -> OpenAIEmbeddings:
-    """构建 embedding 模型。
+    """Build the embedding model.
 
-    注意两个兼容性要点（踩过坑）：
-    1. 百炼兼容模式只接受字符串数组，必须关闭默认的 tiktoken 预分词
-       （check_embedding_ctx_length=False），否则会发送 token id 数组报错；
-    2. 百炼 embedding 接口限制单次最多 20 条文本，所以 OpenAIEmbeddings 的
-       chunk_size（API 批量大小）必须设为 20。
+    Two compatibility pitfalls (hit in practice):
+    1. The Bailian compatible endpoint only accepts string arrays, so the default
+       tiktoken pre-tokenization must be disabled (check_embedding_ctx_length=False),
+       otherwise token-id arrays are sent and rejected.
+    2. The Bailian embedding API caps each batch at 20 texts, so OpenAIEmbeddings'
+       chunk_size (the API batch size) must be set to 20.
     """
     return OpenAIEmbeddings(
         model=EMBEDDING_MODEL,

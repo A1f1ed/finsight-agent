@@ -1,25 +1,26 @@
-# FinSight Agent — Docker 镜像
+# FinSight Agent — Docker image
 #
-# 构建:  docker build -t finsight-agent .
-# 运行:  docker run --env-file .env -p 8000:8000 finsight-agent
-# 说明:  --env-file .env 把本地 .env 注入容器（密钥不进镜像）；
-#        容器内运行的是 FastAPI 服务（finsight/server.py），
-#        沙箱代码执行也在容器内完成，因此镜像里包含 pandas/matplotlib。
+# Build:  docker build -t finsight-agent .
+# Run:    docker run --env-file .env -p 8000:8000 finsight-agent
+# Notes:  --env-file .env injects the local .env into the container at runtime
+#         (secrets never go into the image); the container runs the FastAPI
+#         service (finsight/server.py), and sandboxed code execution also happens
+#         inside the container, so pandas/matplotlib are included in the image.
 
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# 先复制依赖清单并安装，利用 Docker 层缓存：
-# 代码改动时不会重新安装依赖，构建更快
+# Copy the dependency manifest and install first to leverage Docker layer caching:
+# dependencies are not reinstalled when only code changes, keeping builds fast
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 再复制项目代码（.dockerignore 已排除 .env、运行时产物等）
+# Then copy the project code (.dockerignore excludes .env, runtime artifacts, etc.)
 COPY . .
 
 EXPOSE 8000
 
-# 同步端点内部是长耗时任务，单进程即可承载多个并发会话
-# （FastAPI 会把同步端点派发到线程池）
+# Sync endpoints wrap long-running tasks, so a single process can serve multiple
+# concurrent sessions (FastAPI dispatches sync endpoints to a thread pool)
 CMD ["uvicorn", "finsight.server:app", "--host", "0.0.0.0", "--port", "8000"]

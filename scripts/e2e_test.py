@@ -1,4 +1,4 @@
-"""端到端测试：数据分析工作流（写代码 -> 执行 -> 出图 -> 交付报告）。"""
+"""End-to-end test: data-analysis workflow (write code -> execute -> chart -> report delivery)."""
 
 import sys
 from pathlib import Path
@@ -14,7 +14,7 @@ def main() -> None:
     thread_id = new_thread_id()
     agent, _ = create_finsight_agent(thread_id)
 
-    question = "计算三只股票各自的区间涨跌幅和年化波动率，画一张对比图，并生成一份简短分析报告。"
+    question = "Compute the period return and annualized volatility of each of the three stocks, plot a comparison chart, and generate a short analysis report."
     print(f"Question: {question}\n")
 
     result = agent.invoke(

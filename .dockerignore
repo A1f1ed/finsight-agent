@@ -1,21 +1,21 @@
-# 密钥绝不进镜像（运行时用 --env-file .env 注入）
+# Secrets never enter the image (injected at runtime via --env-file .env)
 .env
 
-# Git 与 IDE
+# Git and IDE
 .git/
 .gitignore
 .vscode/
 .idea/
 
-# 运行时产物（容器内会自动重新生成）
+# Runtime artifacts (regenerated automatically inside the container)
 workspace/
 output/
 chroma_db/
 
-# Python 缓存
+# Python cache
 __pycache__/
 *.pyc
 .venv/
 
-# 文档截图（运行不需要）
+# Doc screenshots (not needed at runtime)
 docs/

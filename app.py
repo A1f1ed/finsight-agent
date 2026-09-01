@@ -1,14 +1,15 @@
-"""FinSight Agent — Streamlit 对话界面。
+"""FinSight Agent — Streamlit chat interface.
 
-运行:
+Run:
     streamlit run app.py
 
-（.streamlit/config.toml 已关闭文件监视，避免它扫描无关依赖）
+(.streamlit/config.toml disables the file watcher so it doesn't scan unrelated deps)
 
-界面功能：
-- 多轮对话（基于 LangGraph checkpointer 记住上下文）
-- 知识问答：带知识库引用的金融概念解答
-- 数据分析：agent 在本地沙箱生成图表，界面自动展示 PNG 与报告
+UI features:
+- Multi-turn conversation (LangGraph checkpointer keeps context per thread)
+- Knowledge Q&A: finance concept answers with knowledge-base citations
+- Data analysis: the agent generates charts in a local sandbox; the UI
+  automatically displays the PNGs and reports
 """
 
 import io
@@ -20,9 +21,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-# 依赖链会间接导入 transformers（本项目并不需要它），其内部在导入时会用 print
-# 输出几条自家模型的 docstring 自检日志（形如 [ERROR] ... paddleocr_vl ...）。
-# 这些日志无害但很吓人：用空 stdout 拦截，并把它的 logger 压到 CRITICAL。
+# The dependency chain indirectly imports transformers (which this project doesn't
+# need); on import it prints a few docstring self-check logs for its own models
+# (e.g. "[ERROR] ... paddleocr_vl ..."). Harmless but alarming: swallow stdout and
+# silence its logger to CRITICAL.
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 logging.getLogger("transformers").setLevel(logging.CRITICAL)
 
@@ -34,7 +36,7 @@ with redirect_stdout(io.StringIO()):
 st.set_page_config(page_title="FinSight Agent", page_icon="📈", layout="wide")
 
 # ---------------------------------------------------------------------------
-# 会话状态初始化：每个会话一个 thread_id + 独立工作区
+# Session init: one thread_id + isolated workspace per conversation
 # ---------------------------------------------------------------------------
 
 
@@ -44,9 +46,9 @@ def load_dataset_preview() -> pd.DataFrame:
 
 
 def init_session() -> None:
-    """首次进入或点击"新对话"时初始化 agent 与会话状态。"""
+    """Initialize the agent and session state on first visit or 'New conversation'."""
     thread_id = new_thread_id()
-    with st.spinner("正在初始化 FinSight（索引知识库 + 准备沙箱）..."):
+    with st.spinner("Initializing FinSight (indexing knowledge base + preparing sandbox)..."):
         agent, backend = create_finsight_agent(thread_id)
     st.session_state.thread_id = thread_id
     st.session_state.agent = agent
@@ -58,47 +60,48 @@ if "thread_id" not in st.session_state:
     init_session()
 
 # ---------------------------------------------------------------------------
-# 侧边栏：项目介绍 / 数据集预览 / 推荐问题
+# Sidebar: project intro / dataset preview / suggested questions
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
     st.title("📈 FinSight Agent")
     st.caption(
-        "基于 LangChain Deep Agents 的金融研究助手："
-        "RAG 知识问答 + 沙箱数据分析。"
+        "A finance research assistant built on LangChain Deep Agents: "
+        "RAG knowledge Q&A + sandboxed data analysis."
     )
 
-    if st.button("🔄 开始新对话", width="stretch"):
+    if st.button("🔄 Start new conversation", width="stretch"):
         st.session_state.clear()
         st.rerun()
 
-    st.subheader("示例问题")
+    st.subheader("Example questions")
     examples = [
-        "夏普比率和最大回撤分别怎么计算？",
-        "港股的每手股数和 T+2 交收是怎么回事？",
-        "分析三只股票的区间涨跌幅和年化波动率，并画一张对比图。",
-        "计算每只股票的最大回撤，生成图表和一份分析报告。",
+        "How are the Sharpe ratio and maximum drawdown calculated?",
+        "What are board lots and T+2 settlement in the HK stock market?",
+        "Analyze the period returns and annualized volatility of the three stocks, and plot a comparison chart.",
+        "Compute the maximum drawdown of each stock, and generate charts plus an analysis report.",
     ]
     for example in examples:
         if st.button(example, width="stretch"):
             st.session_state.pending_prompt = example
 
-    st.subheader("数据集预览")
+    st.subheader("Dataset preview")
     df = load_dataset_preview()
-    st.caption(f"模拟港股日线行情 · {df['Symbol'].nunique()} 只股票 · {len(df)} 行")
+    st.caption(f"Simulated HK daily OHLCV · {df['Symbol'].nunique()} stocks · {len(df)} rows")
     st.dataframe(df.head(8), width="stretch", hide_index=True)
 
 # ---------------------------------------------------------------------------
-# 对话区
+# Conversation area
 # ---------------------------------------------------------------------------
 
 
 def render_artifacts(artifact_paths: list[str]) -> None:
-    """渲染 agent 交付的产物：图片直接展示，Markdown 报告可展开/下载。
+    """Render artifacts delivered by the agent: images inline, markdown reports expandable/downloadable.
 
-    下载按钮必须显式指定唯一 key：不同轮次可能交付同名同内容的文件（如多次分析都叫
-    report.md），此时 Streamlit 自动计算的元素 ID 会重复，抛
-    StreamlitDuplicateElementId。用文件完整路径做 key 即可保证唯一。
+    Download buttons must have an explicit unique key: different turns may deliver
+    files with the same name and content (e.g. multiple analyses all called
+    report.md), in which case Streamlit's auto-computed element IDs collide and it
+    raises StreamlitDuplicateElementId. Keying on the full file path guarantees uniqueness.
     """
     for index, path_str in enumerate(dict.fromkeys(artifact_paths)):
         path = Path(path_str)
@@ -107,10 +110,10 @@ def render_artifacts(artifact_paths: list[str]) -> None:
         if path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
             st.image(str(path), width="stretch")
         elif path.suffix.lower() == ".md":
-            with st.expander(f"📄 查看报告：{path.name}"):
+            with st.expander(f"📄 View report: {path.name}"):
                 st.markdown(path.read_text(encoding="utf-8"))
             st.download_button(
-                f"⬇️ 下载 {path.name}",
+                f"⬇️ Download {path.name}",
                 data=path.read_bytes(),
                 file_name=path.name,
                 mime="text/markdown",
@@ -119,7 +122,7 @@ def render_artifacts(artifact_paths: list[str]) -> None:
 
 
 def collect_new_artifacts(before: set[str]) -> list[str]:
-    """对比 invoke 前后，找出本轮新产出的交付物。"""
+    """Diff the output tree before/after invoke to find this turn's new artifacts."""
     run_root = OUTPUT_ROOT / st.session_state.thread_id
     if not run_root.exists():
         return []
@@ -128,7 +131,7 @@ def collect_new_artifacts(before: set[str]) -> list[str]:
 
 
 def workspace_files() -> set[str]:
-    """会话工作区当前的全部文件（含检索到的知识块）。"""
+    """All files currently in the session workspace (including retrieved chunks)."""
     ws_root = WORKSPACE_ROOT / st.session_state.thread_id
     if not ws_root.exists():
         return set()
@@ -136,10 +139,11 @@ def workspace_files() -> set[str]:
 
 
 def extract_sources(new_files: set[str]) -> list[str]:
-    """从本轮新检索的知识块里解析来源，去重且保序。
+    """Parse citations from chunks newly retrieved this turn, deduped and order-preserving.
 
-    程序化引用：search_knowledge 写块文件时首行为 "# Source: knowledge/xxx.md"，
-    直接解析它来生成引用，不依赖 LLM 在回答里自觉带上来源（非确定性）。
+    Programmatic citations: when search_knowledge writes a chunk file, its first
+    line is "# Source: knowledge/xxx.md". Parse that directly instead of relying on
+    the LLM to include sources in its answer (which is non-deterministic).
     """
     sources: list[str] = []
     for path_str in sorted(new_files):
@@ -158,14 +162,14 @@ def extract_sources(new_files: set[str]) -> list[str]:
 
 
 def render_sources(sources: list[str]) -> None:
-    """在回答下方渲染本轮引用的知识库来源。"""
+    """Render this turn's knowledge-base sources beneath the answer."""
     if sources:
-        st.caption("📚 参考来源：" + "　".join(f"`{s}`" for s in sources))
+        st.caption("📚 Sources: " + " · ".join(f"`{s}`" for s in sources))
 
 
-st.header("FinSight · 金融研究 AI 助手")
+st.header("FinSight · Finance Research AI Assistant")
 
-# 渲染历史消息（含历史交付的图表/报告与引用来源）
+# Render conversation history (including previously delivered charts/reports and sources)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -175,9 +179,9 @@ for msg in st.session_state.messages:
             render_sources(msg["sources"])
 
 
-prompt = st.chat_input("问一个金融知识问题，或让助手分析股票数据…")
+prompt = st.chat_input("Ask a finance knowledge question, or have the assistant analyze the stock data…")
 
-# 侧边栏推荐问题填入输入框流程：直接作为本轮提问执行
+# Sidebar suggested questions: run directly as this turn's prompt
 if "pending_prompt" in st.session_state:
     prompt = st.session_state.pop("pending_prompt")
 
@@ -192,8 +196,9 @@ if prompt:
 
     with st.chat_message("assistant"):
         with st.spinner(
-            "FinSight 正在工作（检索知识 / 编写并执行分析代码）… "
-            "本地约 1-2 分钟；云端服务器在海外，调用国内模型接口需 3-5 分钟，请耐心等待"
+            "FinSight is working (retrieving knowledge / writing and executing analysis code)… "
+            "roughly 1-2 min locally; the cloud instance is overseas and calls China-based "
+            "model endpoints, so please allow 3-5 min"
         ):
             try:
                 result = st.session_state.agent.invoke(
@@ -201,8 +206,8 @@ if prompt:
                     {"configurable": {"thread_id": st.session_state.thread_id}},
                 )
                 answer = result["messages"][-1].text
-            except Exception as e:  # noqa: BLE001 - 对话界面需要兜底错误展示
-                answer = f"⚠️ 运行出错：{e}"
+            except Exception as e:  # noqa: BLE001 - the chat UI needs a fallback error display
+                answer = f"⚠️ Runtime error: {e}"
 
         st.markdown(answer)
         artifacts = collect_new_artifacts(before)

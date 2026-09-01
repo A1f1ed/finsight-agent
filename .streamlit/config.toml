@@ -1,9 +1,9 @@
-# Streamlit 应用配置（本地与 Streamlit Community Cloud 均生效）
+# Streamlit app config (applies both locally and on Streamlit Community Cloud)
 
 [server]
-# 关闭文件监视：避免热重载监视器递归扫描已导入的无关依赖
-# （如 transformers），否则启动日志会被大量无关报错刷屏。
-# 副作用：修改代码后不会自动刷新，需手动点页面右上角 Rerun。
+# Disable file watching: the hot-reload watcher would recursively scan imported
+# unrelated dependencies (e.g. transformers), flooding startup logs with noise.
+# Side effect: code edits no longer auto-refresh — click Rerun (top right) manually.
 fileWatcherType = "none"
 
 [theme]

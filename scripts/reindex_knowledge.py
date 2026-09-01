@@ -1,6 +1,6 @@
-"""重建 Chroma 知识库索引（修改了 knowledge/ 里的文档后运行）。
+"""Rebuild the Chroma knowledge index (run after editing docs under knowledge/).
 
-用法:
+Usage:
     python scripts/reindex_knowledge.py
 """
 

@@ -1,9 +1,10 @@
-"""自定义工具：知识库检索 + 报告交付。
+"""Custom tools: knowledge retrieval + report delivery.
 
-- search_knowledge: 向量检索知识库，把命中片段写入 agent 文件系统 /retrieved/，
-  供子代理读取分析（沿用 Deep Agents 的 "retrieve, offload, delegate" 模式）；
-- publish_report: 把分析产物（图表 PNG / 报告 Markdown）从 agent 工作区导出到
-  本地 output/ 目录，供前端界面展示。
+- search_knowledge: vector-searches the knowledge base and writes the matching
+  chunks to the agent filesystem under /retrieved/, for subagents to read and
+  analyze (the Deep Agents "retrieve, offload, delegate" pattern);
+- publish_report: exports analysis artifacts (chart PNGs / markdown reports)
+  from the agent workspace to the local output/ directory for the UI to display.
 """
 
 import uuid
@@ -13,7 +14,7 @@ from langchain.tools import tool
 
 
 def make_tools(vector_store, backend, output_dir: Path):
-    """工厂函数：把向量库、后端和输出目录绑定进工具闭包。"""
+    """Factory: binds the vector store, backend and output directory into the tool closures."""
 
     @tool(parse_docstring=True)
     def search_knowledge(query: str) -> str:
@@ -68,7 +69,7 @@ def make_tools(vector_store, backend, output_dir: Path):
             if item.content is None:
                 errors.append(f"{item.path}: {item.error or 'unknown error'}")
                 continue
-            # backend 路径形如 /output/report.md，只取文件名落到 run_dir
+            # Backend paths look like /output/report.md; keep only the file name inside run_dir
             local_path = run_dir / Path(item.path).name
             local_path.write_bytes(item.content)
             local_paths.append(str(local_path))

@@ -1,17 +1,19 @@
-"""FinSight Agent — FastAPI 服务：把 agent 暴露为 HTTP API。
+"""FinSight Agent — FastAPI service: exposes the agent as an HTTP API.
 
-运行:
+Run:
     uvicorn finsight.server:app --reload
 
-交互式 API 文档:
+Interactive API docs:
     http://localhost:8000/docs
 
-设计要点：
-- agent.invoke 是同步且耗时的（数十秒到数分钟），端点用同步 def 定义，
-  FastAPI 会自动把它放到线程池执行，不会阻塞事件循环；
-- 每个 thread_id 对应独立的 agent 会话与沙箱工作区；
-  thread_id 不传则自动创建新会话并随响应返回；
-- 分析产物（图表/报告）通过 /chat/{thread_id}/artifacts/{name} 下载。
+Design notes:
+- agent.invoke is synchronous and slow (tens of seconds to minutes); endpoints are
+  defined with plain sync def, and FastAPI runs them in a thread pool automatically,
+  keeping the event loop unblocked;
+- each thread_id maps to an isolated agent session and sandbox workspace;
+  if thread_id is omitted a new session is created and returned in the response;
+- analysis artifacts (charts/reports) are downloaded via
+  /chat/{thread_id}/artifacts/{name}.
 """
 
 from pathlib import Path
@@ -33,29 +35,29 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# 会话缓存: thread_id -> agent（内存态，进程重启即失效；
-# 生产环境可换持久化 checkpointer + Redis 会话表）
+# Session cache: thread_id -> agent (in-memory; lost on process restart;
+# in production, swap in a persistent checkpointer + a Redis session table)
 _sessions: dict[str, object] = {}
 
 
 # ---------------------------------------------------------------------------
-# 请求 / 响应模型（pydantic 校验，自动生成 OpenAPI 文档）
+# Request / response models (pydantic validation, auto-generated OpenAPI docs)
 # ---------------------------------------------------------------------------
 
 
 class ChatRequest(BaseModel):
     message: str = Field(
-        ..., description="用户问题", examples=["夏普比率怎么计算？"]
+        ..., description="The user's question", examples=["How is the Sharpe ratio calculated?"]
     )
     thread_id: str | None = Field(
-        None, description="会话 ID；不传则创建新会话"
+        None, description="Session ID; a new session is created when omitted"
     )
 
 
 class Artifact(BaseModel):
-    name: str = Field(description="文件名，如 report.md")
-    suffix: str = Field(description="扩展名，如 .png")
-    size: int = Field(description="文件大小（字节）")
+    name: str = Field(description="File name, e.g. report.md")
+    suffix: str = Field(description="File extension, e.g. .png")
+    size: int = Field(description="File size in bytes")
 
 
 class ChatResponse(BaseModel):
@@ -63,17 +65,17 @@ class ChatResponse(BaseModel):
     answer: str
     artifacts: list[Artifact] = Field(
         default_factory=list,
-        description="本轮新产出的交付物，可用 /chat/{thread_id}/artifacts/{name} 下载",
+        description="Artifacts newly delivered this turn; download them via /chat/{thread_id}/artifacts/{name}",
     )
 
 
 # ---------------------------------------------------------------------------
-# 内部辅助
+# Internal helpers
 # ---------------------------------------------------------------------------
 
 
 def _get_agent(thread_id: str):
-    """获取（或首次创建）会话对应的 agent。"""
+    """Return the agent for this session, creating it on first use."""
     if thread_id not in _sessions:
         agent, _backend = create_finsight_agent(thread_id)
         _sessions[thread_id] = agent
@@ -81,7 +83,7 @@ def _get_agent(thread_id: str):
 
 
 def _artifact_paths(thread_id: str) -> set[str]:
-    """当前会话已交付的全部产物路径。"""
+    """All artifact paths delivered by this session so far."""
     run_root = OUTPUT_ROOT / thread_id
     if not run_root.exists():
         return set()
@@ -89,19 +91,19 @@ def _artifact_paths(thread_id: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# 端点
+# Endpoints
 # ---------------------------------------------------------------------------
 
 
 @app.get("/health")
 def health() -> dict:
-    """健康检查（部署平台探活用）。"""
+    """Health check (for deployment-platform liveness probes)."""
     return {"status": "ok"}
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    """向 FinSight 提问；知识问答约 1 分钟，数据分析任务约 3-5 分钟。"""
+    """Ask FinSight a question; knowledge Q&A takes ~1 min, data-analysis tasks ~3-5 min."""
     thread_id = req.thread_id or new_thread_id()
     agent = _get_agent(thread_id)
 
@@ -125,7 +127,8 @@ def chat(req: ChatRequest) -> ChatResponse:
 
 @app.get("/chat/{thread_id}/artifacts/{name}")
 def download_artifact(thread_id: str, name: str) -> FileResponse:
-    """下载会话产物。遍历限定在该会话的 output 目录内，防止路径穿越。"""
+    """Download a session artifact. The lookup is confined to the session's output
+    directory to prevent path traversal."""
     run_root = OUTPUT_ROOT / thread_id
     if run_root.exists():
         for p in run_root.rglob("*"):

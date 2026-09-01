@@ -1,4 +1,4 @@
-"""FinSight Agent — 金融研究 AI 助手。
+"""FinSight Agent — a finance research AI assistant.
 
-结合 RAG 知识问答与沙箱数据分析的 Deep Agents 作品集项目。
+Combines RAG knowledge Q&A with sandboxed data analysis, built on Deep Agents.
 """

@@ -1,10 +1,10 @@
-"""Deep Agent 装配：RAG 知识问答 + 沙箱数据分析，一个入口两种能力。
+"""Deep Agent assembly: RAG knowledge Q&A + sandboxed data analysis, one entry point, two capabilities.
 
-架构（两条工作流共享同一个编排代理）：
+Architecture (both workflows share the same orchestrator):
 
-  用户提问
-    ├─ 知识类问题 → search_knowledge 检索 → knowledge-analyst 子代理并行分析 → 汇总带引用的答案
-    └─ 数据分析问题 → 在沙箱写 Python 脚本 → execute 执行生成图表/报告 → publish_report 交付
+  User question
+    ├─ Knowledge question → search_knowledge retrieves → knowledge-analyst subagents analyze in parallel → synthesized answer with citations
+    └─ Data analysis question → writes a Python script in the sandbox → execute generates charts/reports → publish_report delivers
 """
 
 import uuid
@@ -24,7 +24,7 @@ WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
 OUTPUT_ROOT = PROJECT_ROOT / "output"
 
 # ---------------------------------------------------------------------------
-# 系统提示词：规划 -> 检索 -> 委派 -> 汇总 / 分析 -> 出图 -> 交付
+# System prompts: plan -> retrieve -> delegate -> synthesize / analyze -> chart -> deliver
 # ---------------------------------------------------------------------------
 
 WORKFLOW_INSTRUCTIONS = """# FinSight: Finance Research Assistant
@@ -106,16 +106,16 @@ knowledge_analyst_subagent = {
 
 
 # ---------------------------------------------------------------------------
-# Agent 工厂：每个会话一个独立工作区（LocalShellBackend）
+# Agent factory: one isolated workspace (LocalShellBackend) per conversation
 # ---------------------------------------------------------------------------
 
 
 def create_workspace(thread_id: str) -> LocalShellBackend:
-    """为会话创建独立的本地工作区，并预置示例行情数据。
+    """Create an isolated local workspace for a conversation, pre-seeded with the sample dataset.
 
-    virtual_mode=True: 文件工具的 /path 映射到工作区目录，防止路径逃逸；
-    inherit_env=True: execute 子进程继承当前环境，保证能找到 conda 里的
-    python / pandas / matplotlib。
+    virtual_mode=True: file-tool /paths are mapped into the workspace directory,
+    preventing path traversal; inherit_env=True: the execute subprocess inherits
+    the current environment so it can find the conda python / pandas / matplotlib.
     """
     root = WORKSPACE_ROOT / thread_id
     root.mkdir(parents=True, exist_ok=True)
@@ -126,16 +126,17 @@ def create_workspace(thread_id: str) -> LocalShellBackend:
         inherit_env=True,
         timeout=300,
     )
-    # 预置数据集，让 agent 开箱即可分析
+    # Pre-seed the dataset so the agent can start analyzing out of the box
     backend.upload_files([("/data/hk_stocks_sample.csv", SAMPLE_CSV.read_bytes())])
     return backend
 
 
 def create_finsight_agent(thread_id: str):
-    """创建绑定会话工作区的 FinSight 深度代理。
+    """Create a FinSight deep agent bound to a conversation workspace.
 
     Returns:
-        (agent, backend): 带 checkpointer 的代理实例（支持多轮对话）与工作区后端。
+        (agent, backend): an agent instance with a checkpointer (multi-turn memory)
+        and its workspace backend.
     """
     backend = create_workspace(thread_id)
     vector_store = get_vector_store()

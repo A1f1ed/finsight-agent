@@ -1,4 +1,4 @@
-"""验证 LocalShellBackend 沙箱执行：agent 视角写脚本 -> execute -> 产出图表。"""
+"""Verify LocalShellBackend sandbox execution: write a script from the agent's view -> execute -> chart output."""
 
 import sys
 from pathlib import Path
@@ -36,7 +36,7 @@ def main() -> None:
     thread_id = new_thread_id()
     backend = create_workspace(thread_id)
 
-    # agent 的文件工具视角：写入脚本与 output 目录
+    # Agent file-tool perspective: upload the script and create the output directory
     backend.upload_files([("/scripts/analyze.py", SCRIPT.encode("utf-8"))])
     (Path(backend.cwd) / "output").mkdir(parents=True, exist_ok=True)
 

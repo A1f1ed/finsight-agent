@@ -1,24 +1,24 @@
-# Deep Agents 框架（基于 LangGraph 的深度代理）
+# Deep Agents framework (deep agents built on LangGraph)
 deepagents>=0.7
 langchain
 langchain-openai
 langchain-text-splitters
 langgraph
 
-# 持久化向量库（嵌入式模式，无需单独部署数据库服务）
+# Persistent vector store (embedded mode — no separate database service needed)
 langchain-chroma
 
-# 配置
+# Configuration
 python-dotenv
 
-# 沙箱数据分析依赖（agent 生成的脚本会用到）
+# Sandbox data-analysis dependencies (used by agent-generated scripts)
 pandas
 numpy
 matplotlib
 
-# Web 界面
+# Web UI
 streamlit
 
-# HTTP API 服务（finsight/server.py）
+# HTTP API service (finsight/server.py)
 fastapi
 uvicorn

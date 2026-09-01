@@ -1,9 +1,9 @@
-"""API 冒烟测试：调用 FastAPI 服务的 /chat 端点。
+"""API smoke test: calls the FastAPI service's /chat endpoint.
 
-先启动服务:
+Start the service first:
     uvicorn finsight.server:app --host 127.0.0.1 --port 8000
 
-再运行:
+Then run:
     python scripts/api_test.py
 """
 
@@ -28,7 +28,7 @@ def post_chat(message: str, thread_id: str | None = None) -> dict:
 
 
 def main() -> None:
-    question = "最大回撤是什么？怎么计算？"
+    question = "What is maximum drawdown and how is it calculated?"
     print(f"POST /chat  message={question!r}")
 
     start = time.time()

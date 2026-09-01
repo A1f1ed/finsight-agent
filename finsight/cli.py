@@ -1,6 +1,6 @@
-"""FinSight Agent 命令行界面（不想开网页时的轻量入口）。
+"""FinSight Agent command-line interface (lightweight entry point without the web UI).
 
-运行:
+Run:
     python -m finsight.cli
 """
 
@@ -11,11 +11,11 @@ from .agent import create_finsight_agent, new_thread_id
 
 def main() -> None:
     thread_id = new_thread_id()
-    print("正在初始化 FinSight（索引知识库 + 准备沙箱）...")
+    print("Initializing FinSight (indexing knowledge base + preparing sandbox)...")
     agent, _ = create_finsight_agent(thread_id)
     config = {"configurable": {"thread_id": thread_id}}
 
-    print("\nFinSight 就绪。输入问题开始对话，输入 exit 退出。\n")
+    print("\nFinSight ready. Type a question to start; type exit to quit.\n")
     while True:
         try:
             question = input("You> ").strip()

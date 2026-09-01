@@ -1,14 +1,15 @@
-"""RAG 索引：加载本地金融知识库 -> 切分 -> embedding -> Chroma 持久化向量库。
+"""RAG indexing: load the local finance knowledge base -> split -> embed -> persistent Chroma store.
 
-知识库是 knowledge/ 目录下的 markdown 文件（技术指标、风险指标、港股常识）。
+The knowledge base is the markdown files under knowledge/ (technical indicators,
+risk metrics, HK market basics).
 
-使用 Chroma 的嵌入式（embedded）模式：数据以文件形式持久化在 chroma_db/
-目录（sqlite + HNSW 索引），无需安装或启动任何数据库服务。
+Uses Chroma in embedded mode: data is persisted as files inside chroma_db/
+(SQLite metadata + HNSW index) — no database service needs to be installed or started.
 
-行为：
-- 首次启动：切分文档并调用 embedding API 建索引，写入 chroma_db/
-- 之后启动：直接从磁盘打开集合，不再调用 embedding API（启动快、零成本）
-- 知识库文件更新后：运行 python scripts/reindex_knowledge.py 重建索引
+Behavior:
+- First startup: splits the docs, calls the embedding API to build the index, writes chroma_db/
+- Later startups: opens the collection straight from disk, no embedding API calls (fast, zero cost)
+- After editing knowledge files: run python scripts/reindex_knowledge.py to rebuild
 """
 
 import hashlib
@@ -26,7 +27,7 @@ COLLECTION_NAME = "finsight_knowledge"
 
 
 def load_knowledge_docs() -> list[Document]:
-    """读取 knowledge/ 下所有 markdown 文件为 Document 列表。"""
+    """Read every markdown file under knowledge/ into a list of Documents."""
     docs: list[Document] = []
     for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
         docs.append(
@@ -39,13 +40,14 @@ def load_knowledge_docs() -> list[Document]:
 
 
 def build_chunks() -> tuple[list[Document], list[str]]:
-    """切分知识库文档，并生成确定性的块 ID。
+    """Split the knowledge docs and generate deterministic chunk IDs.
 
-    ID 由 来源文件 + 序号 + 内容哈希 决定：同样的内容重复写入不会产生重复
-    向量，这是持久化向量库的基本要求（幂等写入）。
+    The ID is derived from source file + index + content hash: re-ingesting the
+    same content never creates duplicate vectors — idempotent writes, a basic
+    requirement for a persistent vector store.
     """
     docs = load_knowledge_docs()
-    # 文档切分大小：每块约 1000 字符，200 字符重叠，保证语义完整
+    # Chunking: ~1000 characters per chunk with 200-character overlap, keeping semantics intact
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = splitter.split_documents(docs)
     ids = [
@@ -58,16 +60,17 @@ def build_chunks() -> tuple[list[Document], list[str]]:
 
 
 def _collection_count(vector_store: Chroma) -> int:
-    """查询集合中已有向量数。"""
+    """Number of vectors already in the collection."""
     return len(vector_store.get(include=[]).get("ids", []))
 
 
 @lru_cache(maxsize=1)
 def get_vector_store() -> Chroma:
-    """打开持久化向量库：集合为空时自动建索引，否则直接复用磁盘数据。
+    """Open the persistent vector store: build the index if empty, otherwise reuse disk data.
 
-    Chroma 嵌入式模式只需 persist_directory 指向本地目录，
-    数据（sqlite 元数据 + HNSW 向量索引）自动落盘，进程重启不丢失。
+    Chroma embedded mode only needs persist_directory pointing at a local folder;
+    data (SQLite metadata + HNSW index) is written to disk automatically and
+    survives process restarts.
     """
     vector_store = Chroma(
         collection_name=COLLECTION_NAME,
@@ -91,7 +94,7 @@ def get_vector_store() -> Chroma:
 
 
 def reindex() -> int:
-    """删除并重建知识库索引（修改了 knowledge/ 里的文档后运行）。"""
+    """Drop and rebuild the knowledge index (run after editing files under knowledge/)."""
     store = Chroma(
         collection_name=COLLECTION_NAME,
         embedding_function=get_embeddings(),
