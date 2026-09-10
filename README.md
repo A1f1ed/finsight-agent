@@ -20,6 +20,7 @@ FinSight answers finance concept questions with citations from a local knowledge
 - **Autonomous data analysis** — for computation questions the agent plans with a todo list, writes a pandas/matplotlib script, runs it in a local sandbox, interprets the output and iterates on errors.
 - **Artifact delivery** — charts (PNG) and reports (Markdown) are exported from the agent workspace and rendered/downloadable in the Streamlit UI.
 - **Multi-turn memory** — LangGraph checkpointer keeps conversation context per thread; every conversation gets its own isolated workspace.
+- **Conversation manager** — the sidebar lists every conversation (auto-titled from its first question): start a new one, switch between them instantly, or delete them. Each conversation's agent, history and workspace stay alive in the session, so switching back restores full context with no rebuild or re-indexing.
 - **Three interfaces** — Streamlit web UI, a minimal CLI, and a FastAPI HTTP service with auto-generated OpenAPI docs.
 
 ## Architecture

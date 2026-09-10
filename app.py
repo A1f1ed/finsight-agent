@@ -15,6 +15,9 @@ UI features:
 import io
 import logging
 import os
+import shutil
+import threading
+import time
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -36,8 +39,17 @@ with redirect_stdout(io.StringIO()):
 st.set_page_config(page_title="FinSight Agent", page_icon="📈", layout="wide")
 
 # ---------------------------------------------------------------------------
-# Session init: one thread_id + isolated workspace per conversation
+# Conversation management
+#
+# Each conversation owns a thread_id, an agent (its LangGraph InMemorySaver
+# checkpointer IS the multi-turn memory) and an isolated workspace/output dir.
+# All conversations live in st.session_state, so switching between them is
+# instant and preserves each one's visible history AND its LLM context — the
+# agent object is kept alive, never rebuilt. (State is per browser session; a
+# full page refresh starts over, which matches the in-memory checkpointer.)
 # ---------------------------------------------------------------------------
+
+DEFAULT_TITLE = "New conversation"
 
 
 @st.cache_data(show_spinner=False)
@@ -45,19 +57,61 @@ def load_dataset_preview() -> pd.DataFrame:
     return pd.read_csv(SAMPLE_CSV)
 
 
-def init_session() -> None:
-    """Initialize the agent and session state on first visit or 'New conversation'."""
+def conversations() -> dict:
+    """Registry of all conversations: {thread_id: {title, created_at, messages, agent, backend}}."""
+    if "conversations" not in st.session_state:
+        st.session_state.conversations = {}
+    return st.session_state.conversations
+
+
+def create_conversation() -> str:
+    """Create a fresh conversation (new thread_id + agent + workspace) and switch to it."""
     thread_id = new_thread_id()
-    with st.spinner("Initializing FinSight (indexing knowledge base + preparing sandbox)..."):
+    with st.spinner("Starting a new FinSight conversation…"):
         agent, backend = create_finsight_agent(thread_id)
-    st.session_state.thread_id = thread_id
-    st.session_state.agent = agent
-    st.session_state.backend = backend
-    st.session_state.messages = []
+    conversations()[thread_id] = {
+        "title": DEFAULT_TITLE,
+        "created_at": time.time(),
+        "messages": [],
+        "agent": agent,
+        "backend": backend,
+        "status": "idle",  # "idle" | "running" — whether a background invoke is in flight
+    }
+    st.session_state.current_thread = thread_id
+    return thread_id
 
 
-if "thread_id" not in st.session_state:
-    init_session()
+def switch_conversation(thread_id: str) -> None:
+    """Make an existing conversation the active one."""
+    st.session_state.current_thread = thread_id
+
+
+def delete_conversation(thread_id: str) -> None:
+    """Drop a conversation and remove its on-disk workspace/output; reselect a neighbour."""
+    convs = conversations()
+    convs.pop(thread_id, None)
+    for root in (WORKSPACE_ROOT / thread_id, OUTPUT_ROOT / thread_id):
+        shutil.rmtree(root, ignore_errors=True)
+    if st.session_state.get("current_thread") == thread_id:
+        if convs:
+            st.session_state.current_thread = max(convs, key=lambda t: convs[t]["created_at"])
+        else:
+            create_conversation()
+
+
+def current() -> dict:
+    """The active conversation dict."""
+    return conversations()[st.session_state.current_thread]
+
+
+def ordered_threads() -> list[str]:
+    """All conversation thread_ids, most recently created first."""
+    convs = conversations()
+    return sorted(convs, key=lambda t: convs[t]["created_at"], reverse=True)
+
+
+if "conversations" not in st.session_state:
+    create_conversation()
 
 # ---------------------------------------------------------------------------
 # Sidebar: project intro / dataset preview / suggested questions
@@ -70,9 +124,45 @@ with st.sidebar:
         "RAG knowledge Q&A + sandboxed data analysis."
     )
 
-    if st.button("🔄 Start new conversation", width="stretch"):
-        st.session_state.clear()
+    if st.button("➕ New conversation", width="stretch", type="primary"):
+        create_conversation()
         st.rerun()
+
+    # --- Conversation switcher: click a title to switch, 🗑️ to delete --------
+    st.subheader("Conversations")
+    convs = conversations()
+    current_thread = st.session_state.current_thread
+    for thread_id in ordered_threads():
+        conv = convs[thread_id]
+        is_current = thread_id == current_thread
+        # ⏳ = a background run is in flight; switching away does NOT interrupt it,
+        # the answer is written back to its own thread.
+        if conv["status"] == "running":
+            icon = "⏳"
+        elif is_current:
+            icon = "🟢"
+        else:
+            icon = "💬"
+        help_text = (
+            "Running in the background…"
+            if conv["status"] == "running"
+            else f"{len(conv['messages'])} messages"
+        )
+        pick, drop = st.columns([6, 1])
+        with pick:
+            if st.button(
+                f"{icon} {conv['title']}",
+                key=f"switch-{thread_id}",
+                width="stretch",
+                help=help_text,
+            ):
+                if not is_current:
+                    switch_conversation(thread_id)
+                    st.rerun()
+        with drop:
+            if st.button("🗑️", key=f"delete-{thread_id}", help="Delete this conversation"):
+                delete_conversation(thread_id)
+                st.rerun()
 
     st.subheader("Example questions")
     examples = [
@@ -81,8 +171,9 @@ with st.sidebar:
         "Analyze the period returns and annualized volatility of the three stocks, and plot a comparison chart.",
         "Compute the maximum drawdown of each stock, and generate charts plus an analysis report.",
     ]
+    current_running = convs[current_thread]["status"] == "running"
     for example in examples:
-        if st.button(example, width="stretch"):
+        if st.button(example, width="stretch", disabled=current_running):
             st.session_state.pending_prompt = example
 
     st.subheader("Dataset preview")
@@ -121,18 +212,18 @@ def render_artifacts(artifact_paths: list[str]) -> None:
             )
 
 
-def collect_new_artifacts(before: set[str]) -> list[str]:
+def collect_new_artifacts(thread_id: str, before: set[str]) -> list[str]:
     """Diff the output tree before/after invoke to find this turn's new artifacts."""
-    run_root = OUTPUT_ROOT / st.session_state.thread_id
+    run_root = OUTPUT_ROOT / thread_id
     if not run_root.exists():
         return []
-    current = {str(p) for p in run_root.rglob("*") if p.is_file()}
-    return sorted(current - before)
+    now_files = {str(p) for p in run_root.rglob("*") if p.is_file()}
+    return sorted(now_files - before)
 
 
-def workspace_files() -> set[str]:
+def workspace_files(thread_id: str) -> set[str]:
     """All files currently in the session workspace (including retrieved chunks)."""
-    ws_root = WORKSPACE_ROOT / st.session_state.thread_id
+    ws_root = WORKSPACE_ROOT / thread_id
     if not ws_root.exists():
         return set()
     return {str(p) for p in ws_root.rglob("*") if p.is_file()}
@@ -167,10 +258,107 @@ def render_sources(sources: list[str]) -> None:
         st.caption("📚 Sources: " + " · ".join(f"`{s}`" for s in sources))
 
 
+# ---------------------------------------------------------------------------
+# Background execution
+#
+# Streamlit reruns the whole script on every interaction and aborts whatever is
+# mid-execution, so a synchronous agent.invoke() (minutes long) would be killed
+# the instant the user switches or starts a conversation — the answer is lost.
+# Fix: run invoke() on a daemon thread that writes its result straight back into
+# THAT conversation's dict, located by the thread_id captured at launch (not by
+# "current", which may have changed). The worker never touches st.* or
+# st.session_state (there is no ScriptRunContext off the main thread); it only
+# mutates the plain dict it is handed, which the main thread shares via
+# session_state. A fragment then polls the active conversation until it lands.
+# ---------------------------------------------------------------------------
+
+
+def _run_agent_worker(
+    conv: dict, thread_id: str, prompt: str, before: set[str], ws_before: set[str]
+) -> None:
+    """Background thread body: invoke the agent, write the assistant turn back into conv."""
+    try:
+        result = conv["agent"].invoke(
+            {"messages": [HumanMessage(content=prompt)]},
+            {"configurable": {"thread_id": thread_id}},
+        )
+        answer = result["messages"][-1].text
+    except Exception as e:  # noqa: BLE001 - surface the error in-chat instead of killing the thread
+        answer = f"⚠️ Runtime error: {e}"
+    artifacts = collect_new_artifacts(thread_id, before)
+    sources = extract_sources(workspace_files(thread_id) - ws_before)
+    conv["messages"].append(
+        {"role": "assistant", "content": answer, "artifacts": artifacts, "sources": sources}
+    )
+    conv["status"] = "idle"
+    conv["just_finished"] = True  # tells the fragment to do one full rerun (re-enable the input)
+
+
+def start_agent_run(conv: dict, thread_id: str, prompt: str) -> None:
+    """Record the user turn, snapshot the workspace, and launch the worker thread."""
+    if not conv["messages"]:  # first message -> title the conversation from the prompt
+        conv["title"] = (prompt[:38] + "…") if len(prompt) > 38 else prompt
+    conv["messages"].append({"role": "user", "content": prompt})
+
+    run_root = OUTPUT_ROOT / thread_id
+    before = {str(p) for p in run_root.rglob("*") if p.is_file()} if run_root.exists() else set()
+    ws_before = workspace_files(thread_id)
+
+    conv["status"] = "running"
+    conv.pop("just_finished", None)
+    threading.Thread(
+        target=_run_agent_worker,
+        args=(conv, thread_id, prompt, before, ws_before),
+        daemon=True,
+    ).start()
+
+
+@st.fragment(run_every=1)
+def poll_running() -> None:
+    """Live 'working' indicator for the active conversation, refreshed once a second.
+
+    run_every makes Streamlit re-execute ONLY this fragment every second (the sidebar
+    and the message history are untouched) and — crucially — it manages the fragment
+    rerun timing itself, so we never call st.rerun(scope="fragment") by hand. Doing
+    that during a full-app run is illegal and raises StreamlitAPIException.
+
+    When the worker thread flips status back to 'idle' it also sets just_finished; we
+    then trigger ONE full rerun to render the landed answer and re-enable the chat
+    input. When idle with nothing pending, this fragment is a cheap no-op.
+    """
+    conv = current()
+    if conv["status"] == "running":
+        st.info(
+            "⏳ FinSight is working (retrieving knowledge / writing and running analysis code)… "
+            "roughly 1-2 min locally, 3-5 min on the cloud instance. You can switch to or start "
+            "another conversation — this run keeps going in the background."
+        )
+    elif conv.get("just_finished"):
+        conv["just_finished"] = False
+        st.rerun()  # full rerun: render the landed answer + re-enable the chat input
+
+
 st.header("FinSight · Finance Research AI Assistant")
 
-# Render conversation history (including previously delivered charts/reports and sources)
-for msg in st.session_state.messages:
+conv = current()
+thread_id = st.session_state.current_thread
+is_running = conv["status"] == "running"
+
+prompt = st.chat_input(
+    "Ask a finance knowledge question, or have the assistant analyze the stock data…",
+    disabled=is_running,
+)
+
+# Sidebar suggested questions: run directly as this turn's prompt
+if "pending_prompt" in st.session_state:
+    prompt = st.session_state.pop("pending_prompt")
+
+if prompt and not is_running:
+    start_agent_run(conv, thread_id, prompt)
+    st.rerun()  # refresh the sidebar (title + ⏳) and re-render with the input disabled
+
+# Render the active conversation's history (snapshot the list: a worker may append).
+for msg in list(conv["messages"]):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("artifacts"):
@@ -178,43 +366,5 @@ for msg in st.session_state.messages:
         if msg.get("sources"):
             render_sources(msg["sources"])
 
-
-prompt = st.chat_input("Ask a finance knowledge question, or have the assistant analyze the stock data…")
-
-# Sidebar suggested questions: run directly as this turn's prompt
-if "pending_prompt" in st.session_state:
-    prompt = st.session_state.pop("pending_prompt")
-
-if prompt:
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    run_root = OUTPUT_ROOT / st.session_state.thread_id
-    before = {str(p) for p in run_root.rglob("*") if p.is_file()} if run_root.exists() else set()
-    ws_before = workspace_files()
-
-    with st.chat_message("assistant"):
-        with st.spinner(
-            "FinSight is working (retrieving knowledge / writing and executing analysis code)… "
-            "roughly 1-2 min locally; the cloud instance is overseas and calls China-based "
-            "model endpoints, so please allow 3-5 min"
-        ):
-            try:
-                result = st.session_state.agent.invoke(
-                    {"messages": [HumanMessage(content=prompt)]},
-                    {"configurable": {"thread_id": st.session_state.thread_id}},
-                )
-                answer = result["messages"][-1].text
-            except Exception as e:  # noqa: BLE001 - the chat UI needs a fallback error display
-                answer = f"⚠️ Runtime error: {e}"
-
-        st.markdown(answer)
-        artifacts = collect_new_artifacts(before)
-        render_artifacts(artifacts)
-        sources = extract_sources(workspace_files() - ws_before)
-        render_sources(sources)
-
-    st.session_state.messages.append(
-        {"role": "assistant", "content": answer, "artifacts": artifacts, "sources": sources}
-    )
+# Live "working" note + completion refresh (fragment-local, polls once a second).
+poll_running()
