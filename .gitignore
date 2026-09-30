@@ -13,6 +13,12 @@ output/
 # Chroma vector store data (rebuildable anytime via scripts/reindex_knowledge.py)
 chroma_db/
 
+# LangGraph SQLite checkpointer (persistent multi-turn conversation memory)
+checkpoints.sqlite
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
 # IDE
 .vscode/
 .idea/

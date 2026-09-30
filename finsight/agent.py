@@ -7,13 +7,16 @@ Architecture (both workflows share the same orchestrator):
     └─ Data analysis question → writes a Python script in the sandbox → execute generates charts/reports → publish_report delivers
 """
 
+import os
+import sqlite3
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
-from langchain.agents.middleware import TodoListMiddleware
-from langgraph.checkpoint.memory import InMemorySaver
+from langchain.agents.middleware import SummarizationMiddleware, TodoListMiddleware
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .config import PROJECT_ROOT, get_chat_model
 from .rag import get_vector_store
@@ -22,6 +25,38 @@ from .tools import make_tools
 SAMPLE_CSV = PROJECT_ROOT / "data" / "hk_stocks_sample.csv"
 WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
 OUTPUT_ROOT = PROJECT_ROOT / "output"
+
+# Persistent multi-turn memory: ONE shared SQLite file for every conversation,
+# keyed by thread_id. Replaces the in-memory checkpointer so context survives a
+# process restart / page refresh (InMemorySaver lost it on both).
+CHECKPOINT_DB = PROJECT_ROOT / "checkpoints.sqlite"
+
+# Automatic context compression: once a thread's history passes the trigger,
+# SummarizationMiddleware folds older turns into a summary and keeps only the most
+# recent messages verbatim, bounding the prompt size on long conversations.
+# Env-overridable so thresholds can be tuned (or lowered to test) without code edits.
+_trig_messages = os.getenv("FINSGHT_SUMMARIZE_TRIGGER_MESSAGES")
+SUMMARIZE_TRIGGER = (
+    ("messages", int(_trig_messages))
+    if _trig_messages
+    else ("tokens", int(os.getenv("FINSGHT_SUMMARIZE_TRIGGER_TOKENS", "24000")))
+)
+SUMMARIZE_KEEP = ("messages", int(os.getenv("FINSGHT_SUMMARIZE_KEEP_MESSAGES", "20")))
+
+
+@lru_cache
+def get_checkpointer() -> SqliteSaver:
+    """Shared, persistent LangGraph checkpointer backed by a single SQLite file.
+
+    sqlite3.threadsafety is 3 (serialized) here, so one connection is safe to share
+    across the per-conversation background worker threads. check_same_thread=False is
+    required because the agent runs on a worker thread, not the one that opened the
+    connection; timeout lets concurrent writes wait on SQLite's lock instead of
+    raising 'database is locked'.
+    """
+    CHECKPOINT_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False, timeout=30.0)
+    return SqliteSaver(conn)
 
 # ---------------------------------------------------------------------------
 # System prompts: plan -> retrieve -> delegate -> synthesize / analyze -> chart -> deliver
@@ -151,8 +186,16 @@ def create_finsight_agent(thread_id: str):
         backend=backend,
         system_prompt=INSTRUCTIONS,
         subagents=[knowledge_analyst_subagent],
-        middleware=[TodoListMiddleware()],
-        checkpointer=InMemorySaver(),
+        middleware=[
+            TodoListMiddleware(),
+            # Automatic context compression for long conversations (see SUMMARIZE_* above).
+            SummarizationMiddleware(
+                model=get_chat_model(),
+                trigger=SUMMARIZE_TRIGGER,
+                keep=SUMMARIZE_KEEP,
+            ),
+        ],
+        checkpointer=get_checkpointer(),  # persistent (SQLite) instead of in-memory
     )
     return agent, backend
 

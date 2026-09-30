@@ -4,6 +4,7 @@ langchain
 langchain-openai
 langchain-text-splitters
 langgraph
+langgraph-checkpoint-sqlite
 
 # Persistent vector store (embedded mode — no separate database service needed)
 langchain-chroma
