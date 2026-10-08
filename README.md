@@ -183,6 +183,8 @@ These are real pitfalls hit during development — documented so the next person
 - [x] Persist the vector store (Chroma embedded mode, deterministic chunk IDs, auto-build on first startup)
 - [x] FastAPI service layer + Docker deployment (`finsight/server.py`, `Dockerfile`)
 - [ ] Evaluation harness (retrieval recall, answer grounding) with LangSmith datasets
+- [ ] LLM observability with **Langfuse** (self-hosted via Docker Compose) — trace latency / tokens / cost per request, capture 👍/👎 feedback as scores, production dashboards. (Langfuse alone covers this; a separate Prometheus/Grafana stack is overkill at this scale.)
+- [ ] Close the **measure → optimize → monitor → re-iterate** loop: baseline with the eval harness + Langfuse traces, improve retrieval (hybrid search + reranker + chunking) and quantify the delta, watch for quality drift in production, feed regressions back into the eval dataset.
 - [ ] Human-in-the-loop approval before executing generated code
 
 ## Acknowledgements
