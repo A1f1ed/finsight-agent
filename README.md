@@ -190,3 +190,5 @@ These are real pitfalls hit during development — documented so the next person
 ## Acknowledgements
 
 The architecture evolves two official [LangChain Deep Agents tutorials](https://docs.langchain.com/oss/python/deepagents/overview) — the RAG "retrieve, offload, delegate" example and the data analysis agent — into a single domain-specific product with a web interface.
+
+## test internet
