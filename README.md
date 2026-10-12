@@ -186,6 +186,9 @@ These are real pitfalls hit during development — documented so the next person
 - [ ] LLM observability with **Langfuse** (self-hosted via Docker Compose) — trace latency / tokens / cost per request, capture 👍/👎 feedback as scores, production dashboards. (Langfuse alone covers this; a separate Prometheus/Grafana stack is overkill at this scale.)
 - [ ] Close the **measure → optimize → monitor → re-iterate** loop: baseline with the eval harness + Langfuse traces, improve retrieval (hybrid search + reranker + chunking) and quantify the delta, watch for quality drift in production, feed regressions back into the eval dataset.
 - [ ] Human-in-the-loop approval before executing generated code
+- [ ] **Expose the knowledge base as an MCP server** (`finsight/mcp_server.py`, needs `pip install "mcp[cli]"`, Python 3.10+): wrap `search_knowledge` as an MCP `@tool` and the indexed document list as a `finsight://knowledge/sources` resource, so any MCP client (Claude Desktop, Cursor, another team's agent) can query the finance KB without going through the Streamlit or FastAPI layer. Start on `stdio` for local debugging, move to `streamable-http` when it needs remote deployment. Follow-up for the round trip: consume the server back into the agent via `langchain-mcp-adapters`.
+  - Register the server with `sys.executable`, not `"python"` — otherwise the subprocess starts in a different environment and reports `mcp` as missing.
+  - Keep `publish_report` **off** the MCP surface. It ships binary artifacts out of the sandbox workspace, and pushing files across a JSON-RPC boundary is an anti-pattern; export belongs in the app layer. Retrieval belongs in MCP because it is plain text in and out.
 
 ## Acknowledgements
 
