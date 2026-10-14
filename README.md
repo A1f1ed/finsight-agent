@@ -89,6 +89,14 @@ finsight-agent/
 │   ├── backend_test.py         # sandbox execution test
 │   ├── api_test.py             # FastAPI /chat smoke test
 │   └── e2e_test.py             # full data-analysis flow test
+├── eval/                   # evaluation harness (see eval/README.md)
+│   ├── dataset.jsonl       # annotated ground-truth questions (portable to Langfuse/LangSmith)
+│   ├── metrics.py          # pure retrieval-metric functions + offline self-test
+│   ├── retrieval_eval.py   # Level 1: recall / precision / MRR / hit-rate / key-term coverage
+│   ├── judge.py            # LLM-as-judge (Pydantic structured output)
+│   ├── answer_eval.py      # Level 2: full agent run + faithfulness / relevance / correctness / citation
+│   ├── run_eval.py         # CLI orchestrator + JSON / Markdown reports
+│   └── README.md           # methodology
 ├── Dockerfile              # container image for the API service
 ├── .dockerignore
 ├── requirements.txt
@@ -147,6 +155,31 @@ curl -X POST http://localhost:8000/chat \
   -d '{"message": "How is the Sharpe ratio calculated?"}'
 ```
 
+## Evaluation
+
+`eval/` is a self-contained harness that scores the agent on two levels, so
+retrieval changes and prompt changes can be measured instead of eyeballed:
+
+- **Level 1 — retrieval** (cheap, fast): does `search_knowledge` fetch the right
+  chunks? Reports Hit-Rate@k / Recall@k / Precision@k / MRR / key-term coverage
+  against a labeled dataset.
+- **Level 2 — answer quality** (full agent run + **LLM-as-judge**): scores
+  faithfulness (grounding / anti-hallucination), relevance, correctness and
+  citation on a 1–5 rubric, judged against the chunks the agent *actually*
+  retrieved plus a reference answer.
+
+```bash
+python -m eval.metrics                            # offline self-test of the metric math (no API)
+python -m eval.run_eval --level retrieval         # Level 1 — embeddings only
+python -m eval.run_eval --level answer --limit 3  # Level 2 sample — slow (full agent runs)
+python -m eval.run_eval --level both              # full harness → eval/reports/
+```
+
+The JSONL dataset and the JSON/Markdown reports are portable — the same dataset
+imports into Langfuse/LangSmith and these scores map onto trace scores (the
+`monitor` half of the measure → optimize → monitor → re-iterate loop). See
+[`eval/README.md`](eval/README.md) for metric definitions and how to extend the set.
+
 ## Deployment
 
 **Streamlit UI → Streamlit Community Cloud (free)**
@@ -182,7 +215,7 @@ These are real pitfalls hit during development — documented so the next person
 
 - [x] Persist the vector store (Chroma embedded mode, deterministic chunk IDs, auto-build on first startup)
 - [x] FastAPI service layer + Docker deployment (`finsight/server.py`, `Dockerfile`)
-- [ ] Evaluation harness (retrieval recall, answer grounding) with LangSmith datasets
+- [x] Evaluation harness (`eval/`) — two levels: **retrieval** quality (hit-rate / recall / precision / MRR / key-term coverage) and **answer grounding** via LLM-as-judge (faithfulness / relevance / correctness / citation). Portable JSONL dataset + JSON/Markdown reports; ready to feed Langfuse/LangSmith. See `eval/README.md`.
 - [ ] LLM observability with **Langfuse** (self-hosted via Docker Compose) — trace latency / tokens / cost per request, capture 👍/👎 feedback as scores, production dashboards. (Langfuse alone covers this; a separate Prometheus/Grafana stack is overkill at this scale.)
 - [ ] Close the **measure → optimize → monitor → re-iterate** loop: baseline with the eval harness + Langfuse traces, improve retrieval (hybrid search + reranker + chunking) and quantify the delta, watch for quality drift in production, feed regressions back into the eval dataset.
 - [ ] Human-in-the-loop approval before executing generated code

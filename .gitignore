@@ -19,6 +19,10 @@ checkpoints.sqlite
 *.sqlite-wal
 *.sqlite-shm
 
+# Generated eval reports (keep the directory, ignore its contents)
+eval/reports/*
+!eval/reports/.gitkeep
+
 # IDE
 .vscode/
 .idea/
